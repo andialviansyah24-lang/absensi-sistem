@@ -1,1192 +1,1890 @@
-<script>
-    // Data Storage
-    let users = JSON.parse(localStorage.getItem('attendanceUsers')) || [
-        { id: 1, name: 'admin', password: 'admin', email: 'admin@system.com', fullName: 'Administrator', phone: '08123456789', address: 'System Admin', shift: 'admin', profileImage: null }
-    ];
-    let attendanceData = JSON.parse(localStorage.getItem('attendanceData')) || [];
-    let scheduleData = JSON.parse(localStorage.getItem('scheduleData')) || [];
-    let currentUser = null;
-
-    // Barcode Scanner Variables
-    let currentScanType = null;
-    let videoStream = null;
-    let scanningInterval = null;
-    const VALID_BARCODE = 'ATTENDANCE_SYSTEM_2024';
-
-    // Utility Functions
-    function saveData() {
-        localStorage.setItem('attendanceUsers', JSON.stringify(users));
-        localStorage.setItem('attendanceData', JSON.stringify(attendanceData));
-        localStorage.setItem('scheduleData', JSON.stringify(scheduleData));
-    }
-
-    function getCurrentDateTime() {
-        return new Date().toLocaleString('id-ID');
-    }
-
-    // Fungsi untuk mendapatkan tanggal hari ini dalam format ID (DD/MM/YYYY) - digunakan untuk data Absensi
-    function getTodayDateIDFormat() {
-        // Menggunakan Intl.DateTimeFormat untuk memastikan konsistensi DD/MM/YYYY
-        const today = new Date();
-        return new Intl.DateTimeFormat('id-ID', {day: '2-digit', month: '2-digit', year: 'numeric'}).format(today);
-    }
-
-    function getCurrentTime() {
-        return new Date().toLocaleTimeString('id-ID');
-    }
-
-    // Fungsi untuk mendapatkan tanggal hari ini dalam format ISO (YYYY-MM-DD) - digunakan untuk data Jadwal
-    function getTodayDateString() {
-        return new Date().toISOString().split('T')[0];
-    }
-
-    function showMessage(message, type = 'success') {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `fixed top-4 left-4 right-4 p-4 rounded-2xl text-white z-50 text-center mobile-text ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
-        messageDiv.textContent = message;
-        document.body.appendChild(messageDiv);
-        setTimeout(() => {
-            document.body.removeChild(messageDiv);
-        }, 3000);
-    }
-
-    // Page Navigation
-    function showPage(pageId) {
-        const pages = ['loginPage', 'forgotPasswordPage', 'registerPage', 'dashboardPage', 'profilePage', 'attendanceListPage', 'adminPanelPage', 'scheduleTablePage', 'scheduleManagerPage', 'memberSchedulePage', 'barcodeScannerPage', 'lateReportPage'];
-        pages.forEach(page => {
-            document.getElementById(page).classList.add('hidden');
-        });
-        document.getElementById(pageId).classList.remove('hidden');
-        document.getElementById(pageId).classList.add('fade-in');
-    }
-
-    function showLogin() { showPage('loginPage'); }
-    function showForgotPassword() { showPage('forgotPasswordPage'); }
-    function showRegister() { showPage('registerPage'); }
-    function showDashboard() { 
-        showPage('dashboardPage'); 
-        updateDashboard();
-        updateDateTime();
-    }
-    function showProfile() { 
-        showPage('profilePage'); 
-        loadProfile();
-    }
-    function showAttendanceList() { 
-        showPage('attendanceListPage'); 
-        loadAttendanceList();
-    }
-    function showAdminPanel() { 
-        showPage('adminPanelPage'); 
-        loadAdminPanel();
-    }
-    function showScheduleTable() { 
-        showPage('scheduleTablePage'); 
-        initScheduleTable();
-    }
-    function showScheduleManager() { 
-        showPage('scheduleManagerPage'); 
-        loadScheduleManager();
-    }
-    function showMemberSchedule() { 
-        showPage('memberSchedulePage'); 
-        loadMemberSchedule();
-    }
-    function showLateReport() { 
-        showPage('lateReportPage'); 
-        initLateReport();
-    }
-
-    // Authentication
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const name = document.getElementById('loginName').value;
-        const password = document.getElementById('loginPassword').value;
-        
-        const user = users.find(u => u.name === name && u.password === password);
-        if (user) {
-            currentUser = user;
-            showMessage('Login berhasil!');
-            showDashboard();
-        } else {
-            showMessage('Nama atau password salah!', 'error');
-        }
-    });
-
-    document.getElementById('forgotPasswordForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const email = document.getElementById('resetEmail').value;
-        const user = users.find(u => u.email === email);
-        
-        if (user) {
-            showMessage('Email reset password telah dikirim ke ' + email);
-            showLogin();
-        } else {
-            showMessage('Email tidak ditemukan!', 'error');
-        }
-    });
-
-    document.getElementById('registerForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const fullName = document.getElementById('regFullName').value;
-        const address = document.getElementById('regAddress').value;
-        const phone = document.getElementById('regPhone').value;
-        const email = document.getElementById('regEmail').value;
-        const password = document.getElementById('regPassword').value;
-        const confirmPassword = document.getElementById('regConfirmPassword').value;
-        
-        if (password !== confirmPassword) {
-            showMessage('Password tidak cocok!', 'error');
-            return;
+absensi toko
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Absensi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+    <style>
+        body {
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
         
-        if (users.find(u => u.email === email)) {
-            showMessage('Email sudah terdaftar!', 'error');
-            return;
+        .fade-in {
+            animation: fadeIn 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
         }
         
-        const newUser = {
-            id: users.length + 1,
-            name: fullName.toLowerCase().replace(/\s+/g, ''),
-            password: password,
-            email: email,
-            fullName: fullName,
-            phone: phone,
-            address: address,
-            shift: 'shift1',
-            profileImage: null
-        };
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
         
-        users.push(newUser);
-        saveData();
-        showMessage('Akun berhasil dibuat! Silakan login.');
-        showLogin();
-    });
-
-    function logout() {
-        currentUser = null;
-        showMessage('Logout berhasil!');
-        showLogin();
-    }
-
-    // Dashboard Functions
-    function updateDashboard() {
-        if (!currentUser) return;
+        .mobile-card {
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border: 1px solid rgba(0,0,0,0.05);
+        }
         
-        document.getElementById('headerUserName').textContent = currentUser.fullName;
-        document.getElementById('headerProfileImg').src = currentUser.profileImage || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E";
+        .mobile-btn {
+            border-radius: 16px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            min-height: 52px;
+            font-size: 16px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
         
-        // Check today's schedule using ISO format
-        const todayISO = getTodayDateString();
-        const todaySchedule = scheduleData.find(s => s.userId === currentUser.id && s.date === todayISO);
+        .mobile-btn:active {
+            transform: scale(0.98);
+        }
         
-        // Show/hide admin card based on user role
-        if (currentUser.shift === 'admin') {
-            document.getElementById('adminCard').classList.remove('hidden');
-            // Hide attendance buttons for admin
-            document.getElementById('clockInCard').classList.add('hidden');
-            document.getElementById('breakCard').classList.add('hidden');
-            document.getElementById('clockOutCard').classList.add('hidden');
-            document.getElementById('fullTimeCard').classList.add('hidden');
-            document.getElementById('memberScheduleCard').classList.add('hidden');
-            document.getElementById('attendanceListCard').classList.add('hidden'); // Admin melihat dari panel
-        } else {
-            document.getElementById('adminCard').classList.add('hidden');
-            document.getElementById('memberScheduleCard').classList.remove('hidden');
-            document.getElementById('attendanceListCard').classList.remove('hidden');
+        .mobile-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #d946ef 100%);
+            min-height: 100%;
+        }
+        
+        .glass-header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .action-card {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+            border: 1px solid rgba(0,0,0,0.04);
+            transition: all 0.2s ease;
+        }
+        
+        .action-card:active {
+            transform: scale(0.98);
+            box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+        }
+        
+        .primary-btn {
+            background: #6366f1;
+            color: white;
+        }
+        
+        .primary-btn:hover {
+            background: #5855eb;
+        }
+        
+        .success-btn {
+            background: #10b981;
+            color: white;
+        }
+        
+        .success-btn:hover {
+            background: #059669;
+        }
+        
+        .warning-btn {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .warning-btn:hover {
+            background: #d97706;
+        }
+        
+        .danger-btn {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .danger-btn:hover {
+            background: #dc2626;
+        }
+        
+        .secondary-btn {
+            background: #f3f4f6;
+            color: #374151;
+            border: 1px solid #e5e7eb;
+        }
+        
+        .secondary-btn:hover {
+            background: #e5e7eb;
+        }
+        
+        .input-field {
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            background: #ffffff;
+        }
+        
+        .input-field:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+        
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-active {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .status-late {
+            background: #fef2f2;
+            color: #991b1b;
+        }
+        
+        .status-completed {
+            background: #eff6ff;
+            color: #1e40af;
+        }
+        
+        .icon-wrapper {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        
+        .safe-area {
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+        }
+        
+        @media (max-width: 768px) {
+            .mobile-spacing {
+                padding: 16px;
+            }
             
-            // Show/hide cards based on schedule for non-admin users
-            if (todaySchedule && todaySchedule.shift === 'fulltime') {
-                // Full time mode - hide other buttons
+            .mobile-text {
+                font-size: 14px;
+            }
+            
+            .mobile-title {
+                font-size: 18px;
+                font-weight: 700;
+            }
+            
+            .mobile-subtitle {
+                font-size: 14px;
+                color: #6b7280;
+            }
+        }
+        
+        /* iOS specific styles */
+        @supports (-webkit-touch-callout: none) {
+            .mobile-btn {
+                -webkit-appearance: none;
+                -webkit-tap-highlight-color: transparent;
+            }
+            
+            .input-field {
+                -webkit-appearance: none;
+                border-radius: 12px;
+            }
+        }
+        
+        /* Android specific styles */
+        @media screen and (-webkit-min-device-pixel-ratio: 0) and (min-resolution: .001dpcm) {
+            .mobile-btn {
+                outline: none;
+                -webkit-tap-highlight-color: transparent;
+            }
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-full">
+    <div id="app" class="min-h-full">
+        <!-- Login Page -->
+        <div id="loginPage" class="safe-area flex items-center justify-center min-h-full mobile-spacing">
+            <div class="max-w-sm w-full mobile-card p-6">
+                <div class="text-center mb-6">
+                    <div class="icon-wrapper bg-gradient-to-br from-indigo-500 to-purple-600 mx-auto mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="mobile-title text-gray-900 mb-1">Sistem Absensi</h2>
+                    <p class="mobile-subtitle">Masuk ke akun Anda</p>
+                </div>
+                <form id="loginForm" class="space-y-4">
+                    <div>
+                        <input type="text" id="loginName" required placeholder="Nama" class="w-full input-field">
+                    </div>
+                    <div>
+                        <input type="password" id="loginPassword" required placeholder="Password" class="w-full input-field">
+                    </div>
+                    <button type="submit" class="w-full mobile-btn primary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                        </svg>
+                        Masuk
+                    </button>
+                </form>
+                <div class="flex flex-col space-y-2 mt-4">
+                    <button onclick="showForgotPassword()" class="text-indigo-600 hover:text-indigo-800 mobile-text py-2">Lupa password?</button>
+                    <button onclick="showRegister()" class="text-emerald-600 hover:text-emerald-800 mobile-text py-2">Buat akun baru</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Forgot Password Page -->
+        <div id="forgotPasswordPage" class="hidden safe-area flex items-center justify-center min-h-full mobile-spacing">
+            <div class="max-w-sm w-full mobile-card p-6">
+                <div class="text-center mb-6">
+                    <div class="icon-wrapper bg-gradient-to-br from-blue-500 to-cyan-600 mx-auto mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="mobile-title text-gray-900 mb-1">Lupa Password</h2>
+                    <p class="mobile-subtitle">Masukkan email untuk reset</p>
+                </div>
+                <form id="forgotPasswordForm" class="space-y-4">
+                    <div>
+                        <input type="email" id="resetEmail" required placeholder="Email" class="w-full input-field">
+                    </div>
+                    <button type="submit" class="w-full mobile-btn primary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                        </svg>
+                        Reset Password
+                    </button>
+                </form>
+                <div class="text-center mt-4">
+                    <button onclick="showLogin()" class="text-indigo-600 hover:text-indigo-800 mobile-text py-2">← Kembali ke login</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Register Page -->
+        <div id="registerPage" class="hidden safe-area flex items-center justify-center min-h-full mobile-spacing">
+            <div class="max-w-sm w-full mobile-card p-6">
+                <div class="text-center mb-6">
+                    <div class="icon-wrapper bg-gradient-to-br from-emerald-500 to-green-600 mx-auto mb-4">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                        </svg>
+                    </div>
+                    <h2 class="mobile-title text-gray-900 mb-1">Daftar Akun</h2>
+                    <p class="mobile-subtitle">Buat akun baru</p>
+                </div>
+                <form id="registerForm" class="space-y-3">
+                    <input type="text" id="regFullName" required placeholder="Nama Lengkap" class="w-full input-field">
+                    <textarea id="regAddress" required placeholder="Alamat" class="w-full input-field h-20 resize-none"></textarea>
+                    <input type="tel" id="regPhone" required placeholder="Nomor Telepon" class="w-full input-field">
+                    <input type="email" id="regEmail" required placeholder="Email" class="w-full input-field">
+                    <input type="password" id="regPassword" required placeholder="Password" class="w-full input-field">
+                    <input type="password" id="regConfirmPassword" required placeholder="Ulangi Password" class="w-full input-field">
+                    <button type="submit" class="w-full mobile-btn success-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                        </svg>
+                        Daftar
+                    </button>
+                </form>
+                <div class="text-center mt-4">
+                    <button onclick="showLogin()" class="text-indigo-600 hover:text-indigo-800 mobile-text py-2">← Sudah punya akun?</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Page -->
+        <div id="dashboardPage" class="hidden min-h-full safe-area">
+            <!-- Header -->
+            <header class="glass-header sticky top-0 z-10">
+                <div class="mobile-spacing py-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h1 class="mobile-title text-white">Dashboard</h1>
+                            <p id="currentDateTime" class="mobile-text text-white/80"></p>
+                        </div>
+                        <button onclick="showProfile()" class="flex items-center space-x-2 bg-white/10 backdrop-blur-sm px-3 py-2 rounded-full border border-white/20">
+                            <img id="headerProfileImg" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E" class="w-8 h-8 rounded-full">
+                            <span id="headerUserName" class="text-white font-medium mobile-text">User</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="mobile-spacing space-y-3">
+                <!-- Scan Absen -->
+                <div id="clockInCard" class="action-card p-4">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-pink-500 to-rose-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Scan Absen</h3>
+                            <p id="clockInStatus" class="mobile-subtitle"></p>
+                        </div>
+                    </div>
+                    <button id="clockInBtn" onclick="startBarcodeScanner('clockIn')" class="w-full mobile-btn primary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h4M4 4h5m0 0v5m0-5h5m0 0v5"></path>
+                        </svg>
+                        Scan Absen Masuk
+                    </button>
+                </div>
+
+                <!-- Scan Istirahat -->
+                <div id="breakCard" class="action-card p-4">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-blue-500 to-cyan-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Scan Istirahat</h3>
+                            <p id="breakStatus" class="mobile-subtitle"></p>
+                        </div>
+                    </div>
+                    <button id="breakBtn" onclick="startBarcodeScanner('break')" class="w-full mobile-btn warning-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Scan Istirahat
+                    </button>
+                </div>
+
+                <!-- Selesai -->
+                <div id="clockOutCard" class="action-card p-4">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-emerald-500 to-teal-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Selesai Kerja</h3>
+                            <p id="clockOutStatus" class="mobile-subtitle"></p>
+                        </div>
+                    </div>
+                    <button id="clockOutBtn" onclick="clockOut()" class="w-full mobile-btn success-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Selesai Kerja
+                    </button>
+                </div>
+
+                <!-- Full Time -->
+                <div id="fullTimeCard" class="action-card p-4 hidden">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-orange-500 to-red-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Full Time</h3>
+                            <p class="mobile-subtitle">Jadwal khusus full time</p>
+                        </div>
+                    </div>
+                    <button id="fullTimeBtn" onclick="fullTimeAttendance()" class="w-full mobile-btn warning-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        Absen Full Time
+                    </button>
+                </div>
+
+                <!-- Jadwal Saya -->
+                <div id="memberScheduleCard" class="action-card p-4">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-blue-500 to-indigo-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Jadwal Saya</h3>
+                            <p class="mobile-subtitle">Lihat jadwal yang dibuat admin</p>
+                        </div>
+                    </div>
+                    <button onclick="showMemberSchedule()" class="w-full mobile-btn secondary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        Lihat Jadwal Saya
+                    </button>
+                </div>
+
+                <!-- Daftar Hadir -->
+                <div id="attendanceListCard" class="action-card p-4">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-green-500 to-emerald-500">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Daftar Hadir</h3>
+                            <p class="mobile-subtitle">Lihat kehadiran anggota</p>
+                        </div>
+                    </div>
+                    <button onclick="showAttendanceList()" class="w-full mobile-btn secondary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                        Lihat Daftar Hadir
+                    </button>
+                </div>
+
+                <!-- Admin Panel -->
+                <div id="adminCard" class="action-card p-4 hidden">
+                    <div class="flex items-center space-x-3 mb-3">
+                        <div class="icon-wrapper bg-gradient-to-br from-purple-500 to-indigo-600">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <h3 class="mobile-title text-gray-900">Admin Panel</h3>
+                            <p class="mobile-subtitle">Kelola sistem absensi</p>
+                        </div>
+                    </div>
+                    <button onclick="showAdminPanel()" class="w-full mobile-btn primary-btn">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        Kelola Sistem
+                    </button>
+                </div>
+            </main>
+        </div>
+
+        <!-- Profile Page -->
+        <div id="profilePage" class="hidden min-h-full safe-area">
+            <div class="mobile-spacing">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="mobile-title text-gray-900">Profil Saya</h2>
+                        <button onclick="showDashboard()" class="text-indigo-600 hover:text-indigo-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <div class="text-center mb-6">
+                        <div class="relative inline-block">
+                            <img id="profileImg" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E" class="w-24 h-24 rounded-full mx-auto border-4 border-gray-100 shadow-lg">
+                            <div class="absolute -bottom-2 -right-2 w-8 h-8 bg-indigo-600 rounded-full flex items-center justify-center shadow-lg">
+                                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                            </div>
+                        </div>
+                        <input type="file" id="profileImageInput" accept="image/*" class="hidden">
+                        <button onclick="document.getElementById('profileImageInput').click()" class="mt-4 mobile-btn secondary-btn">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                            Ubah Foto
+                        </button>
+                    </div>
+                    
+                    <div class="space-y-4">
+                        <input type="text" id="profileName" placeholder="Nama Lengkap" class="w-full input-field">
+                        <input type="email" id="profileEmail" placeholder="Email" class="w-full input-field">
+                        <input type="tel" id="profilePhone" placeholder="Nomor Telepon" class="w-full input-field">
+                        <textarea id="profileAddress" placeholder="Alamat" class="w-full input-field h-24 resize-none"></textarea>
+                        
+                        <div class="grid grid-cols-2 gap-3 pt-2">
+                            <button onclick="updateProfile()" class="mobile-btn success-btn">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                </svg>
+                                Simpan
+                            </button>
+                            <button onclick="logout()" class="mobile-btn danger-btn">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                                </svg>
+                                Logout
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Member Schedule Page -->
+        <div id="memberSchedulePage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Jadwal Saya</h2>
+                        <button onclick="showDashboard()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <!-- Operational Hours Info -->
+                    <div class="bg-blue-50 rounded-2xl p-4 mb-6">
+                        <h4 class="font-semibold text-blue-800 mb-2">Jam Operasional:</h4>
+                        <div class="text-sm text-blue-700 space-y-1">
+                            <div>• Shift 1: 07:30 - 15:00 WIB</div>
+                            <div>• Shift 2: 14:30 - 21:30 WIB</div>
+                            <div>• Full Time: 08:00 - 21:30 WIB</div>
+                        </div>
+                    </div>
+                    
+                    <div id="memberScheduleList" class="space-y-3">
+                        <!-- Data akan diisi oleh JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attendance List Page -->
+        <div id="attendanceListPage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Daftar Hadir</h2>
+                        <button onclick="showDashboard()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <div class="space-y-3" id="attendanceListContainer">
+                        <!-- Data akan diisi oleh JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Table Page -->
+        <div id="scheduleTablePage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Buat Jadwal Anggota</h2>
+                        <button onclick="showAdminPanel()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <!-- Date Range Selection -->
+                    <div class="bg-blue-50 rounded-2xl p-4 mb-6">
+                        <h4 class="font-semibold text-blue-800 mb-3">Pilih Periode Jadwal:</h4>
+                        <div class="grid grid-cols-2 gap-3">
+                            <input type="date" id="scheduleStartDate" class="px-3 py-2 border-0 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                            <input type="date" id="scheduleEndDate" class="px-3 py-2 border-0 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm">
+                        </div>
+                        <button onclick="generateScheduleTable()" class="w-full mt-3 bg-blue-600 text-white py-2 px-4 rounded-xl hover:bg-blue-700 transition duration-300 text-sm">
+                            Buat Tabel Jadwal
+                        </button>
+                    </div>
+                    
+                    <!-- Schedule Table -->
+                    <div id="scheduleTableContainer" class="overflow-x-auto">
+                        <!-- Table will be generated here -->
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div id="scheduleTableActions" class="hidden mt-6 space-y-3">
+                        <button onclick="saveScheduleTable()" class="w-full bg-green-600 text-white py-4 px-6 mobile-btn hover:bg-green-700 transition duration-300">
+                            Simpan Jadwal
+                        </button>
+                        <button onclick="editScheduleTable()" class="w-full bg-yellow-600 text-white py-4 px-6 mobile-btn hover:bg-yellow-700 transition duration-300">
+                            Edit Jadwal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Late Report Page -->
+        <div id="lateReportPage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Laporan Keterlambatan</h2>
+                        <button onclick="showAdminPanel()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <!-- Month Selection -->
+                    <div class="bg-yellow-50 rounded-2xl p-4 mb-6">
+                        <h4 class="font-semibold text-yellow-800 mb-3">Pilih Bulan:</h4>
+                        <input type="month" id="lateReportMonth" class="w-full px-3 py-2 border-0 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-yellow-500 text-sm">
+                        <button onclick="generateLateReport()" class="w-full mt-3 bg-yellow-600 text-white py-2 px-4 rounded-xl hover:bg-yellow-700 transition duration-300 text-sm">
+                            Lihat Laporan
+                        </button>
+                    </div>
+                    
+                    <!-- Late Report Results -->
+                    <div id="lateReportResults" class="space-y-3">
+                        <!-- Results will be generated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Manager Page -->
+        <div id="scheduleManagerPage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Kelola Jadwal</h2>
+                        <button onclick="showAdminPanel()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <div id="scheduleManagerList" class="space-y-3">
+                        <!-- Data akan diisi oleh JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Barcode Scanner Page -->
+        <div id="barcodeScannerPage" class="hidden min-h-full">
+            <div class="px-4 py-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Scan Barcode</h2>
+                        <button onclick="closeBarcodeScanner()" class="text-red-600 hover:text-red-800 mobile-text">
+                            ✕ Tutup
+                        </button>
+                    </div>
+                    
+                    <div class="text-center mb-6">
+                        <div class="w-64 h-64 mx-auto bg-gray-100 rounded-2xl flex items-center justify-center relative overflow-hidden">
+                            <video id="barcodeVideo" class="w-full h-full object-cover rounded-2xl" autoplay playsinline></video>
+                            <div class="absolute inset-0 border-4 border-red-500 rounded-2xl pointer-events-none">
+                                <div class="absolute top-4 left-4 w-8 h-8 border-t-4 border-l-4 border-red-500"></div>
+                                <div class="absolute top-4 right-4 w-8 h-8 border-t-4 border-r-4 border-red-500"></div>
+                                <div class="absolute bottom-4 left-4 w-8 h-8 border-b-4 border-l-4 border-red-500"></div>
+                                <div class="absolute bottom-4 right-4 w-8 h-8 border-b-4 border-r-4 border-red-500"></div>
+                            </div>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-4">Arahkan kamera ke barcode</p>
+                    </div>
+                    
+                    <div class="space-y-3">
+                        <button onclick="startCamera()" class="w-full bg-blue-600 text-white py-4 px-6 mobile-btn hover:bg-blue-700 transition duration-300">
+                            Mulai Kamera
+                        </button>
+                        <button onclick="closeBarcodeScanner()" class="w-full bg-gray-600 text-white py-4 px-6 mobile-btn hover:bg-gray-700 transition duration-300">
+                            Batal
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin Panel -->
+        <div id="adminPanelPage" class="hidden min-h-full">
+            <div class="px-4 py-6 space-y-6">
+                <div class="mobile-card p-6">
+                    <div class="flex items-center justify-between mb-6">
+                        <h2 class="text-xl font-bold text-gray-800">Admin Panel</h2>
+                        <button onclick="showDashboard()" class="text-purple-600 hover:text-purple-800 mobile-text">
+                            ← Kembali
+                        </button>
+                    </div>
+                    
+                    <!-- Admin Action Buttons -->
+                    <div class="grid grid-cols-2 gap-3 mb-6">
+                        <button onclick="showScheduleTable()" class="bg-purple-600 text-white py-3 px-4 mobile-btn hover:bg-purple-700 transition duration-300 mobile-text">
+                            Buat Jadwal
+                        </button>
+                        <button onclick="showScheduleManager()" class="bg-blue-600 text-white py-3 px-4 mobile-btn hover:bg-blue-700 transition duration-300 mobile-text">
+                            Kelola Jadwal
+                        </button>
+                        <button onclick="showLateReport()" class="bg-yellow-600 text-white py-3 px-4 mobile-btn hover:bg-yellow-700 transition duration-300 mobile-text">
+                            Laporan Terlambat
+                        </button>
+                        <button onclick="downloadBarcode()" class="bg-orange-600 text-white py-3 px-4 mobile-btn hover:bg-orange-700 transition duration-300 mobile-text">
+                            Unduh Barcode
+                        </button>
+                        <button onclick="exportToExcel()" class="bg-green-600 text-white py-3 px-4 mobile-btn hover:bg-green-700 transition duration-300 mobile-text">
+                            Excel
+                        </button>
+                        <button onclick="exportToPDF()" class="bg-red-600 text-white py-3 px-4 mobile-btn hover:bg-red-700 transition duration-300 mobile-text">
+                            PDF
+                        </button>
+                    </div>
+                </div>
+
+                <!-- User Management -->
+                <div class="mobile-card p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">Kelola Anggota</h3>
+                    <div id="userManagementList" class="space-y-3">
+                        <!-- Data akan diisi oleh JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Attendance Data -->
+                <div class="mobile-card p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">Data Absensi</h3>
+                    <div id="adminAttendanceList" class="space-y-3">
+                        <!-- Data akan diisi oleh JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data Storage
+        let users = JSON.parse(localStorage.getItem('attendanceUsers')) || [
+            { id: 1, name: 'admin', password: 'admin', email: 'admin@system.com', fullName: 'Administrator', phone: '08123456789', address: 'System Admin', shift: 'admin', profileImage: null }
+        ];
+        let attendanceData = JSON.parse(localStorage.getItem('attendanceData')) || [];
+        let scheduleData = JSON.parse(localStorage.getItem('scheduleData')) || [];
+        let currentUser = null;
+
+        // Utility Functions
+        function saveData() {
+            localStorage.setItem('attendanceUsers', JSON.stringify(users));
+            localStorage.setItem('attendanceData', JSON.stringify(attendanceData));
+            localStorage.setItem('scheduleData', JSON.stringify(scheduleData));
+        }
+
+        function getCurrentDateTime() {
+            return new Date().toLocaleString('id-ID');
+        }
+
+        function getCurrentDate() {
+            return new Date().toLocaleDateString('id-ID');
+        }
+
+        function getCurrentTime() {
+            return new Date().toLocaleTimeString('id-ID');
+        }
+
+        function getTodayDateString() {
+            return new Date().toISOString().split('T')[0];
+        }
+
+        function showMessage(message, type = 'success') {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `fixed top-4 left-4 right-4 p-4 rounded-2xl text-white z-50 text-center mobile-text ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+            messageDiv.textContent = message;
+            document.body.appendChild(messageDiv);
+            setTimeout(() => {
+                document.body.removeChild(messageDiv);
+            }, 3000);
+        }
+
+        // Barcode Scanner Variables
+        let currentScanType = null;
+        let videoStream = null;
+        let scanningInterval = null;
+        const VALID_BARCODE = 'ATTENDANCE_SYSTEM_2024';
+
+        // Page Navigation
+        function showPage(pageId) {
+            const pages = ['loginPage', 'forgotPasswordPage', 'registerPage', 'dashboardPage', 'profilePage', 'attendanceListPage', 'adminPanelPage', 'scheduleTablePage', 'scheduleManagerPage', 'memberSchedulePage', 'barcodeScannerPage', 'lateReportPage'];
+            pages.forEach(page => {
+                document.getElementById(page).classList.add('hidden');
+            });
+            document.getElementById(pageId).classList.remove('hidden');
+            document.getElementById(pageId).classList.add('fade-in');
+        }
+
+        function showLogin() { showPage('loginPage'); }
+        function showForgotPassword() { showPage('forgotPasswordPage'); }
+        function showRegister() { showPage('registerPage'); }
+        function showDashboard() { 
+            showPage('dashboardPage'); 
+            updateDashboard();
+            updateDateTime();
+        }
+        function showProfile() { 
+            showPage('profilePage'); 
+            loadProfile();
+        }
+        function showAttendanceList() { 
+            showPage('attendanceListPage'); 
+            loadAttendanceList();
+        }
+        function showAdminPanel() { 
+            showPage('adminPanelPage'); 
+            loadAdminPanel();
+        }
+        function showScheduleTable() { 
+            showPage('scheduleTablePage'); 
+            initScheduleTable();
+        }
+        function showScheduleManager() { 
+            showPage('scheduleManagerPage'); 
+            loadScheduleManager();
+        }
+        function showMemberSchedule() { 
+            showPage('memberSchedulePage'); 
+            loadMemberSchedule();
+        }
+        function showLateReport() { 
+            showPage('lateReportPage'); 
+            initLateReport();
+        }
+
+        // Authentication
+        document.getElementById('loginForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const name = document.getElementById('loginName').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            const user = users.find(u => u.name === name && u.password === password);
+            if (user) {
+                currentUser = user;
+                showMessage('Login berhasil!');
+                showDashboard();
+            } else {
+                showMessage('Nama atau password salah!', 'error');
+            }
+        });
+
+        document.getElementById('forgotPasswordForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const email = document.getElementById('resetEmail').value;
+            const user = users.find(u => u.email === email);
+            
+            if (user) {
+                showMessage('Email reset password telah dikirim ke ' + email);
+                showLogin();
+            } else {
+                showMessage('Email tidak ditemukan!', 'error');
+            }
+        });
+
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const fullName = document.getElementById('regFullName').value;
+            const address = document.getElementById('regAddress').value;
+            const phone = document.getElementById('regPhone').value;
+            const email = document.getElementById('regEmail').value;
+            const password = document.getElementById('regPassword').value;
+            const confirmPassword = document.getElementById('regConfirmPassword').value;
+            
+            if (password !== confirmPassword) {
+                showMessage('Password tidak cocok!', 'error');
+                return;
+            }
+            
+            if (users.find(u => u.email === email)) {
+                showMessage('Email sudah terdaftar!', 'error');
+                return;
+            }
+            
+            const newUser = {
+                id: users.length + 1,
+                name: fullName.toLowerCase().replace(/\s+/g, ''),
+                password: password,
+                email: email,
+                fullName: fullName,
+                phone: phone,
+                address: address,
+                shift: 'shift1',
+                profileImage: null
+            };
+            
+            users.push(newUser);
+            saveData();
+            showMessage('Akun berhasil dibuat! Silakan login.');
+            showLogin();
+        });
+
+        function logout() {
+            currentUser = null;
+            showMessage('Logout berhasil!');
+            showLogin();
+        }
+
+        // Dashboard Functions
+        function updateDashboard() {
+            if (!currentUser) return;
+            
+            document.getElementById('headerUserName').textContent = currentUser.fullName;
+            document.getElementById('headerProfileImg').src = currentUser.profileImage || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='white'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E";
+            
+            // Check today's schedule
+            const today = getTodayDateString();
+            const todaySchedule = scheduleData.find(s => s.userId === currentUser.id && s.date === today);
+            
+            // Show/hide admin card based on user role
+            if (currentUser.shift === 'admin') {
+                document.getElementById('adminCard').classList.remove('hidden');
+                // Hide attendance buttons for admin
                 document.getElementById('clockInCard').classList.add('hidden');
                 document.getElementById('breakCard').classList.add('hidden');
                 document.getElementById('clockOutCard').classList.add('hidden');
-                document.getElementById('fullTimeCard').classList.remove('hidden');
-            } else {
-                // Normal mode - show all buttons except full time
-                document.getElementById('clockInCard').classList.remove('hidden');
-                document.getElementById('breakCard').classList.remove('hidden');
-                document.getElementById('clockOutCard').classList.remove('hidden');
                 document.getElementById('fullTimeCard').classList.add('hidden');
-            }
-        }
-        
-        // Update attendance status and button states
-        updateAttendanceStatus();
-    }
-
-    function updateDateTime() {
-        document.getElementById('currentDateTime').textContent = getCurrentDateTime();
-        setTimeout(updateDateTime, 1000);
-    }
-
-    function updateAttendanceStatus() {
-        const todayID = getTodayDateIDFormat(); // Menggunakan format ID untuk mencari data absensi
-        const userAttendance = attendanceData.filter(a => a.userId === currentUser.id && a.date === todayID);
-        
-        // Reset button states
-        document.getElementById('clockInBtn').disabled = false;
-        document.getElementById('breakBtn').disabled = false;
-        document.getElementById('clockOutBtn').disabled = false;
-        document.getElementById('fullTimeBtn').disabled = false;
-        
-        // Reset status texts
-        document.getElementById('clockInStatus').textContent = 'Belum absen masuk';
-        document.getElementById('breakStatus').textContent = 'Belum istirahat';
-        document.getElementById('clockOutStatus').textContent = 'Belum selesai kerja';
-
-        if (userAttendance.length > 0) {
-            const latest = userAttendance[userAttendance.length - 1];
-            
-            if (latest.clockIn) {
-                document.getElementById('clockInStatus').textContent = `Masuk: ${latest.clockIn} ${latest.isLate ? '(Terlambat)' : ''}`;
-                document.getElementById('clockInBtn').disabled = true;
-            }
-            
-            if (latest.breakTime) {
-                document.getElementById('breakStatus').textContent = `Istirahat: ${latest.breakTime}`;
-                document.getElementById('breakBtn').disabled = true;
-            }
-            
-            if (latest.clockOut) {
-                document.getElementById('clockOutStatus').textContent = `Keluar: ${latest.clockOut}`;
-                document.getElementById('clockOutBtn').disabled = true;
-                document.getElementById('breakBtn').disabled = true;
-            }
-            
-            if (latest.shift === 'fulltime' && latest.clockIn) {
-                document.getElementById('fullTimeBtn').disabled = true;
-            }
-        }
-    }
-
-    // Barcode Scanner Functions
-    function startBarcodeScanner(type) {
-        currentScanType = type;
-        showPage('barcodeScannerPage');
-    }
-
-    function startCamera() {
-        navigator.mediaDevices.getUserMedia({ 
-            video: { 
-                facingMode: 'environment',
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            } 
-        })
-        .then(function(stream) {
-            videoStream = stream;
-            const video = document.getElementById('barcodeVideo');
-            video.srcObject = stream;
-            video.play();
-            
-            // Start scanning for QR codes
-            scanningInterval = setInterval(scanForQRCode, 500);
-            showMessage('Kamera aktif, arahkan ke barcode');
-        })
-        .catch(function(err) {
-            showMessage('Tidak dapat mengakses kamera: ' + err.message, 'error');
-        });
-    }
-
-    function scanForQRCode() {
-        const video = document.getElementById('barcodeVideo');
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(imageData.data, imageData.width, imageData.height);
-            
-            if (code) {
-                if (code.data === VALID_BARCODE) {
-                    processBarcodeSuccess();
+                document.getElementById('memberScheduleCard').classList.add('hidden');
+            } else {
+                document.getElementById('adminCard').classList.add('hidden');
+                document.getElementById('memberScheduleCard').classList.remove('hidden');
+                
+                // Show/hide cards based on schedule for non-admin users
+                if (todaySchedule && todaySchedule.shift === 'fulltime') {
+                    // Full time mode - hide other buttons
+                    document.getElementById('clockInCard').classList.add('hidden');
+                    document.getElementById('breakCard').classList.add('hidden');
+                    document.getElementById('clockOutCard').classList.add('hidden');
+                    document.getElementById('fullTimeCard').classList.remove('hidden');
                 } else {
-                    showMessage('Barcode tidak valid!', 'error');
-                    closeBarcodeScanner();
+                    // Normal mode - show all buttons except full time
+                    document.getElementById('clockInCard').classList.remove('hidden');
+                    document.getElementById('breakCard').classList.remove('hidden');
+                    document.getElementById('clockOutCard').classList.remove('hidden');
+                    document.getElementById('fullTimeCard').classList.add('hidden');
                 }
             }
-        }
-    }
-
-    function processBarcodeSuccess() {
-        closeBarcodeScanner();
-        
-        if (currentScanType === 'clockIn') {
-            clockIn();
-        } else if (currentScanType === 'break') {
-            breakTime();
-        }
-    }
-
-    function closeBarcodeScanner() {
-        if (videoStream) {
-            videoStream.getTracks().forEach(track => track.stop());
-            videoStream = null;
-        }
-        
-        if (scanningInterval) {
-            clearInterval(scanningInterval);
-            scanningInterval = null;
-        }
-        
-        currentScanType = null;
-        showDashboard();
-    }
-
-    function downloadBarcode() {
-        if (currentUser.shift !== 'admin') {
-            showMessage('Hanya admin yang dapat mengunduh barcode!', 'error');
-            return;
-        }
-        
-        // Generate QR Code
-        const qr = qrcode(0, 'M');
-        qr.addData(VALID_BARCODE);
-        qr.make();
-        
-        // Create canvas and draw QR code
-        const canvas = document.createElement('canvas');
-        const size = 300;
-        canvas.width = size;
-        canvas.height = size + 60; // Extra space for text
-        const ctx = canvas.getContext('2d');
-        
-        // White background
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Draw QR code
-        const qrSize = size - 40;
-        const cellSize = qrSize / qr.getModuleCount();
-        
-        for (let row = 0; row < qr.getModuleCount(); row++) {
-            for (let col = 0; col < qr.getModuleCount(); col++) {
-                if (qr.isDark(row, col)) {
-                    ctx.fillStyle = '#000000';
-                    ctx.fillRect(
-                        20 + col * cellSize,
-                        20 + row * cellSize,
-                        cellSize,
-                        cellSize
-                    );
-                }
-            }
-        }
-        
-        // Add text
-        ctx.fillStyle = '#000000';
-        ctx.font = '16px Arial';
-        ctx.textAlign = 'center';
-        ctx.fillText('Barcode Absensi Sistem', canvas.width / 2, canvas.height - 30);
-        ctx.font = '12px Arial';
-        ctx.fillText('Scan untuk absen masuk/istirahat', canvas.width / 2, canvas.height - 10);
-        
-        // Download
-        const link = document.createElement('a');
-        link.download = 'barcode-absensi.png';
-        link.href = canvas.toDataURL();
-        link.click();
-        
-        showMessage('Barcode berhasil diunduh!');
-    }
-
-    // Attendance Functions
-    function clockIn() {
-        const todayID = getTodayDateIDFormat(); // Format 15/10/2025 (untuk data absensi)
-        const todayISO = getTodayDateString(); // Format 2025-10-15 (untuk data jadwal)
-        const time = getCurrentTime();
-        
-        // 1. Cek Jadwal Hari Ini
-        const todaySchedule = scheduleData.find(s => s.userId === currentUser.id && s.date === todayISO);
-
-        // Penanganan Hari Libur/Off
-        if (todaySchedule && todaySchedule.shift === 'off') {
-            showMessage('Hari ini adalah hari libur Anda. Tidak perlu absen!', 'error');
-            return;
-        }
-
-        // 2. Cek Absensi Hari Ini
-        const existingAttendance = attendanceData.find(a => a.userId === currentUser.id && a.date === todayID);
-        
-        if (existingAttendance && existingAttendance.clockIn) {
-            showMessage('Anda sudah absen masuk hari ini!', 'error');
-            return;
-        }
-        
-        // 3. Cek apakah terlambat
-        const isLate = checkIfLate(time, todayISO); // Kirim tanggal ISO untuk mencari jadwal
-        
-        const attendance = {
-            id: attendanceData.length + 1,
-            userId: currentUser.id,
-            userName: currentUser.fullName,
-            date: todayID, // Simpan dalam format ID
-            clockIn: time,
-            breakTime: null,
-            clockOut: null,
-            // Gunakan shift dari jadwal jika ada, jika tidak, gunakan default user
-            shift: (todaySchedule && todaySchedule.shift) || currentUser.shift, 
-            isLate: isLate
-        };
-        
-        attendanceData.push(attendance);
-        saveData();
-        
-        if (isLate) {
-            showMessage('Absen masuk berhasil! (Terlambat)', 'error');
-        } else {
-            showMessage('Absen masuk berhasil!');
-        }
-        updateAttendanceStatus();
-    }
-
-    function checkIfLate(currentTime, todayISO) {
-        // Menggunakan todayISO untuk mencari jadwal
-        const todaySchedule = scheduleData.find(s => s.userId === currentUser.id && s.date === todayISO);
-        
-        if (!todaySchedule || todaySchedule.shift === 'off') return false; 
-        
-        const [currentHour, currentMinute] = currentTime.split(':').map(Number);
-        const [currentSecond] = currentTime.split(':').map(Number).slice(2);
-        const currentTimeMinutes = currentHour * 60 + currentMinute + (currentSecond / 60);
-        
-        let expectedStartTime;
-        switch(todaySchedule.shift) {
-            case 'shift1':
-                expectedStartTime = 7 * 60 + 30; // 07:30
-                break;
-            case 'shift2':
-                expectedStartTime = 14 * 60 + 30; // 14:30
-                break;
-            case 'fulltime':
-                expectedStartTime = 8 * 60; // 08:00
-                break;
-            default:
-                return false;
-        }
-        
-        return currentTimeMinutes > expectedStartTime;
-    }
-
-    function breakTime() {
-        const todayID = getTodayDateIDFormat();
-        const time = getCurrentTime();
-        
-        const attendance = attendanceData.find(a => a.userId === currentUser.id && a.date === todayID);
-        
-        if (!attendance || !attendance.clockIn) {
-            showMessage('Anda harus absen masuk terlebih dahulu!', 'error');
-            return;
-        }
-        
-        if (attendance.clockOut) {
-            showMessage('Anda sudah absen keluar. Tidak bisa istirahat lagi!', 'error');
-            return;
-        }
-
-        if (attendance.breakTime) {
-            showMessage('Anda sudah mencatat waktu istirahat!', 'error');
-            return;
-        }
-        
-        attendance.breakTime = time;
-        saveData();
-        showMessage('Waktu istirahat tercatat!');
-        updateAttendanceStatus();
-    }
-
-    function clockOut() {
-        const todayID = getTodayDateIDFormat();
-        const time = getCurrentTime();
-        
-        const attendance = attendanceData.find(a => a.userId === currentUser.id && a.date === todayID);
-        
-        if (!attendance || !attendance.clockIn) {
-            showMessage('Anda harus absen masuk terlebih dahulu!', 'error');
-            return;
-        }
-        
-        if (attendance.clockOut) {
-            showMessage('Anda sudah absen keluar hari ini!', 'error');
-            return;
-        }
-        
-        attendance.clockOut = time;
-        saveData();
-        showMessage('Absen keluar berhasil!');
-        updateAttendanceStatus();
-    }
-
-    function fullTimeAttendance() {
-        const todayID = getTodayDateIDFormat();
-        const time = getCurrentTime();
-        
-        const existingAttendance = attendanceData.find(a => a.userId === currentUser.id && a.date === todayID);
-        
-        if (existingAttendance && existingAttendance.clockIn) {
-            showMessage('Anda sudah absen full time hari ini!', 'error');
-            return;
-        }
-        
-        // Cek apakah terlambat (menggunakan logika Full Time)
-        const isLate = checkIfLate(time, getTodayDateString());
-        
-        const attendance = {
-            id: attendanceData.length + 1,
-            userId: currentUser.id,
-            userName: currentUser.fullName,
-            date: todayID,
-            clockIn: time,
-            breakTime: null,
-            clockOut: null,
-            shift: 'fulltime',
-            isLate: isLate
-        };
-        
-        attendanceData.push(attendance);
-        saveData();
-
-        if (isLate) {
-            showMessage('Absen full time berhasil! (Terlambat)', 'error');
-        } else {
-            showMessage('Absen full time berhasil!');
-        }
-        updateAttendanceStatus();
-    }
-
-    // Profile Functions
-    function loadProfile() {
-        if (!currentUser) return;
-        
-        document.getElementById('profileName').value = currentUser.fullName;
-        document.getElementById('profileEmail').value = currentUser.email;
-        document.getElementById('profilePhone').value = currentUser.phone;
-        document.getElementById('profileAddress').value = currentUser.address;
-        document.getElementById('profileImg').src = currentUser.profileImage || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E";
-    }
-
-    document.getElementById('profileImageInput').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                document.getElementById('profileImg').src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-        }
-    });
-
-    function updateProfile() {
-        if (!currentUser) return;
-        
-        currentUser.fullName = document.getElementById('profileName').value;
-        currentUser.email = document.getElementById('profileEmail').value;
-        currentUser.phone = document.getElementById('profilePhone').value;
-        currentUser.address = document.getElementById('profileAddress').value;
-        currentUser.profileImage = document.getElementById('profileImg').src;
-        
-        saveData();
-        showMessage('Profil berhasil diperbarui!');
-        updateDashboard();
-    }
-
-    // Member Schedule Functions
-    function loadMemberSchedule() {
-        const container = document.getElementById('memberScheduleList');
-        container.innerHTML = '';
-        
-        const memberSchedules = scheduleData.filter(s => s.userId === currentUser.id);
-        
-        if (memberSchedules.length === 0) {
-            container.innerHTML = '<p class="text-center text-gray-500 py-8">Belum ada jadwal yang dibuat admin</p>';
-            return;
-        }
-        
-        // Sort by date
-        memberSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
-        
-        memberSchedules.forEach(schedule => {
-            const card = document.createElement('div');
-            card.className = 'bg-gray-50 rounded-2xl p-4';
             
-            // Get operational hours for display
-            let operationalHours = '';
-            let shiftName = '';
-            switch(schedule.shift) {
+            // Update attendance status and button states
+            updateAttendanceStatus();
+        }
+
+        function updateDateTime() {
+            document.getElementById('currentDateTime').textContent = getCurrentDateTime();
+            setTimeout(updateDateTime, 1000);
+        }
+
+        function updateAttendanceStatus() {
+            const today = getCurrentDate();
+            const userAttendance = attendanceData.filter(a => a.userId === currentUser.id && a.date === today);
+            
+            // Reset button states
+            document.getElementById('clockInBtn').disabled = false;
+            document.getElementById('breakBtn').disabled = false;
+            document.getElementById('clockOutBtn').disabled = false;
+            document.getElementById('fullTimeBtn').disabled = false;
+            
+            if (userAttendance.length > 0) {
+                const latest = userAttendance[userAttendance.length - 1];
+                
+                if (latest.clockIn) {
+                    document.getElementById('clockInStatus').textContent = `Masuk: ${latest.clockIn}`;
+                    document.getElementById('clockInBtn').disabled = true;
+                }
+                
+                if (latest.breakTime) {
+                    document.getElementById('breakStatus').textContent = `Istirahat: ${latest.breakTime}`;
+                    document.getElementById('breakBtn').disabled = true;
+                }
+                
+                if (latest.clockOut) {
+                    document.getElementById('clockOutStatus').textContent = `Keluar: ${latest.clockOut}`;
+                    document.getElementById('clockOutBtn').disabled = true;
+                    document.getElementById('breakBtn').disabled = true;
+                }
+                
+                if (latest.shift === 'fulltime') {
+                    document.getElementById('fullTimeBtn').disabled = true;
+                }
+            }
+        }
+
+        // Barcode Scanner Functions
+        function startBarcodeScanner(type) {
+            currentScanType = type;
+            showPage('barcodeScannerPage');
+        }
+
+        function startCamera() {
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    facingMode: 'environment',
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                } 
+            })
+            .then(function(stream) {
+                videoStream = stream;
+                const video = document.getElementById('barcodeVideo');
+                video.srcObject = stream;
+                video.play();
+                
+                // Start scanning for QR codes
+                scanningInterval = setInterval(scanForQRCode, 500);
+                showMessage('Kamera aktif, arahkan ke barcode');
+            })
+            .catch(function(err) {
+                showMessage('Tidak dapat mengakses kamera: ' + err.message, 'error');
+            });
+        }
+
+        function scanForQRCode() {
+            const video = document.getElementById('barcodeVideo');
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                
+                if (code) {
+                    if (code.data === VALID_BARCODE) {
+                        processBarcodeSuccess();
+                    } else {
+                        showMessage('Barcode tidak valid!', 'error');
+                        closeBarcodeScanner();
+                    }
+                }
+            }
+        }
+
+        function processBarcodeSuccess() {
+            closeBarcodeScanner();
+            
+            if (currentScanType === 'clockIn') {
+                clockIn();
+            } else if (currentScanType === 'break') {
+                breakTime();
+            }
+        }
+
+        function closeBarcodeScanner() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+            
+            if (scanningInterval) {
+                clearInterval(scanningInterval);
+                scanningInterval = null;
+            }
+            
+            currentScanType = null;
+            showDashboard();
+        }
+
+        function downloadBarcode() {
+            if (currentUser.shift !== 'admin') {
+                showMessage('Hanya admin yang dapat mengunduh barcode!', 'error');
+                return;
+            }
+            
+            // Generate QR Code
+            const qr = qrcode(0, 'M');
+            qr.addData(VALID_BARCODE);
+            qr.make();
+            
+            // Create canvas and draw QR code
+            const canvas = document.createElement('canvas');
+            const size = 300;
+            canvas.width = size;
+            canvas.height = size + 60; // Extra space for text
+            const ctx = canvas.getContext('2d');
+            
+            // White background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw QR code
+            const qrSize = size - 40;
+            const cellSize = qrSize / qr.getModuleCount();
+            
+            for (let row = 0; row < qr.getModuleCount(); row++) {
+                for (let col = 0; col < qr.getModuleCount(); col++) {
+                    if (qr.isDark(row, col)) {
+                        ctx.fillStyle = '#000000';
+                        ctx.fillRect(
+                            20 + col * cellSize,
+                            20 + row * cellSize,
+                            cellSize,
+                            cellSize
+                        );
+                    }
+                }
+            }
+            
+            // Add text
+            ctx.fillStyle = '#000000';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Barcode Absensi Sistem', canvas.width / 2, canvas.height - 30);
+            ctx.font = '12px Arial';
+            ctx.fillText('Scan untuk absen masuk/istirahat', canvas.width / 2, canvas.height - 10);
+            
+            // Download
+            const link = document.createElement('a');
+            link.download = 'barcode-absensi.png';
+            link.href = canvas.toDataURL();
+            link.click();
+            
+            showMessage('Barcode berhasil diunduh!');
+        }
+
+        // Attendance Functions
+        function clockIn() {
+            const today = getCurrentDate();
+            const time = getCurrentTime();
+            
+            const existingAttendance = attendanceData.find(a => a.userId === currentUser.id && a.date === today);
+            
+            if (existingAttendance && existingAttendance.clockIn) {
+                showMessage('Anda sudah absen masuk hari ini!', 'error');
+                return;
+            }
+            
+            // Check if user is late
+            const isLate = checkIfLate(time);
+            
+            const attendance = {
+                id: attendanceData.length + 1,
+                userId: currentUser.id,
+                userName: currentUser.fullName,
+                date: today,
+                clockIn: time,
+                breakTime: null,
+                clockOut: null,
+                shift: currentUser.shift,
+                isLate: isLate
+            };
+            
+            attendanceData.push(attendance);
+            saveData();
+            
+            if (isLate) {
+                showMessage('Absen masuk berhasil! (Terlambat)', 'error');
+            } else {
+                showMessage('Absen masuk berhasil!');
+            }
+            updateAttendanceStatus();
+        }
+
+        function checkIfLate(currentTime) {
+            const today = getTodayDateString();
+            const todaySchedule = scheduleData.find(s => s.userId === currentUser.id && s.date === today);
+            
+            if (!todaySchedule) return false;
+            
+            const [currentHour, currentMinute] = currentTime.split(':').map(Number);
+            const currentTimeMinutes = currentHour * 60 + currentMinute;
+            
+            let expectedStartTime;
+            switch(todaySchedule.shift) {
                 case 'shift1':
-                    operationalHours = '07:30 - 15:00 WIB';
-                    shiftName = 'Shift 1';
+                    expectedStartTime = 7 * 60 + 30; // 07:30
                     break;
                 case 'shift2':
-                    operationalHours = '14:30 - 21:30 WIB';
-                    shiftName = 'Shift 2';
+                    expectedStartTime = 14 * 60 + 30; // 14:30
                     break;
                 case 'fulltime':
-                    operationalHours = '08:00 - 21:30 WIB';
-                    shiftName = 'Full Time';
+                    expectedStartTime = 8 * 60; // 08:00
                     break;
-                case 'off':
-                    operationalHours = 'Libur Penuh';
-                    shiftName = 'Libur';
-                    break;
+                default:
+                    return false;
             }
             
-            const scheduleDate = new Date(schedule.date);
+            return currentTimeMinutes > expectedStartTime;
+        }
+
+        function breakTime() {
+            const today = getCurrentDate();
+            const time = getCurrentTime();
+            
+            const attendance = attendanceData.find(a => a.userId === currentUser.id && a.date === today);
+            
+            if (!attendance || !attendance.clockIn) {
+                showMessage('Anda harus absen masuk terlebih dahulu!', 'error');
+                return;
+            }
+            
+            if (attendance.breakTime) {
+                showMessage('Anda sudah mencatat waktu istirahat!', 'error');
+                return;
+            }
+            
+            attendance.breakTime = time;
+            saveData();
+            showMessage('Waktu istirahat tercatat!');
+            updateAttendanceStatus();
+        }
+
+        function clockOut() {
+            const today = getCurrentDate();
+            const time = getCurrentTime();
+            
+            const attendance = attendanceData.find(a => a.userId === currentUser.id && a.date === today);
+            
+            if (!attendance || !attendance.clockIn) {
+                showMessage('Anda harus absen masuk terlebih dahulu!', 'error');
+                return;
+            }
+            
+            if (attendance.clockOut) {
+                showMessage('Anda sudah absen keluar hari ini!', 'error');
+                return;
+            }
+            
+            attendance.clockOut = time;
+            saveData();
+            showMessage('Absen keluar berhasil!');
+            updateAttendanceStatus();
+        }
+
+        function fullTimeAttendance() {
+            const today = getCurrentDate();
+            const time = getCurrentTime();
+            
+            const existingAttendance = attendanceData.find(a => a.userId === currentUser.id && a.date === today && a.shift === 'fulltime');
+            
+            if (existingAttendance) {
+                showMessage('Anda sudah absen full time hari ini!', 'error');
+                return;
+            }
+            
+            const attendance = {
+                id: attendanceData.length + 1,
+                userId: currentUser.id,
+                userName: currentUser.fullName,
+                date: today,
+                clockIn: time,
+                breakTime: null,
+                clockOut: null,
+                shift: 'fulltime'
+            };
+            
+            attendanceData.push(attendance);
+            saveData();
+            showMessage('Absen full time berhasil!');
+            updateAttendanceStatus();
+        }
+
+        // Profile Functions
+        function loadProfile() {
+            if (!currentUser) return;
+            
+            document.getElementById('profileName').value = currentUser.fullName;
+            document.getElementById('profileEmail').value = currentUser.email;
+            document.getElementById('profilePhone').value = currentUser.phone;
+            document.getElementById('profileAddress').value = currentUser.address;
+            document.getElementById('profileImg').src = currentUser.profileImage || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z'/%3E%3C/svg%3E";
+        }
+
+        document.getElementById('profileImageInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('profileImg').src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function updateProfile() {
+            if (!currentUser) return;
+            
+            currentUser.fullName = document.getElementById('profileName').value;
+            currentUser.email = document.getElementById('profileEmail').value;
+            currentUser.phone = document.getElementById('profilePhone').value;
+            currentUser.address = document.getElementById('profileAddress').value;
+            currentUser.profileImage = document.getElementById('profileImg').src;
+            
+            saveData();
+            showMessage('Profil berhasil diperbarui!');
+            updateDashboard();
+        }
+
+        // Member Schedule Functions
+        function loadMemberSchedule() {
+            const container = document.getElementById('memberScheduleList');
+            container.innerHTML = '';
+            
+            const memberSchedules = scheduleData.filter(s => s.userId === currentUser.id);
+            
+            if (memberSchedules.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-8">Belum ada jadwal yang dibuat admin</p>';
+                return;
+            }
+            
+            // Sort by date
+            memberSchedules.sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            memberSchedules.forEach(schedule => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 rounded-2xl p-4';
+                
+                // Get operational hours for display
+                let operationalHours = '';
+                let shiftName = '';
+                switch(schedule.shift) {
+                    case 'shift1':
+                        operationalHours = '07:30 - 15:00 WIB';
+                        shiftName = 'Shift 1';
+                        break;
+                    case 'shift2':
+                        operationalHours = '14:30 - 21:30 WIB';
+                        shiftName = 'Shift 2';
+                        break;
+                    case 'fulltime':
+                        operationalHours = '08:00 - 21:30 WIB';
+                        shiftName = 'Full Time';
+                        break;
+                }
+                
+                const scheduleDate = new Date(schedule.date);
+                const today = new Date();
+                const isToday = scheduleDate.toDateString() === today.toDateString();
+                const isPast = scheduleDate < today && !isToday;
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-semibold text-gray-800">${scheduleDate.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h4>
+                            <p class="text-sm text-blue-600 font-medium">${shiftName}</p>
+                            <p class="text-xs text-gray-600">${operationalHours}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="inline-block px-3 py-1 text-xs rounded-full ${isToday ? 'bg-green-100 text-green-800' : isPast ? 'bg-gray-100 text-gray-600' : 'bg-blue-100 text-blue-800'}">
+                                ${isToday ? 'Hari Ini' : isPast ? 'Selesai' : 'Akan Datang'}
+                            </span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Attendance List Functions
+        function loadAttendanceList() {
+            const container = document.getElementById('attendanceListContainer');
+            container.innerHTML = '';
+            
+            const today = getCurrentDate();
+            const todayAttendance = attendanceData.filter(a => a.date === today);
+            
+            if (todayAttendance.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-8">Belum ada data absensi hari ini</p>';
+                return;
+            }
+            
+            todayAttendance.forEach(attendance => {
+                const user = users.find(u => u.id === attendance.userId);
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 rounded-2xl p-4';
+                card.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-semibold text-gray-800">${attendance.userName}</h4>
+                            <p class="text-sm text-gray-600">${user ? user.shift : 'N/A'}</p>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-gray-500">Masuk: ${attendance.clockIn || '-'}</div>
+                            <div class="text-xs text-gray-500">Keluar: ${attendance.clockOut || '-'}</div>
+                            <span class="inline-block px-2 py-1 text-xs rounded-full ${attendance.clockOut ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
+                                ${attendance.clockOut ? 'Selesai' : 'Aktif'}
+                            </span>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Schedule Table Functions
+        let currentScheduleTable = [];
+        let isEditingSchedule = false;
+
+        function initScheduleTable() {
+            if (currentUser.shift !== 'admin') return;
+            
+            // Set default dates (next 7 days)
             const today = new Date();
-            const isToday = scheduleDate.toDateString() === today.toDateString();
-            const isPast = scheduleDate < today && !isToday;
+            const nextWeek = new Date();
+            nextWeek.setDate(today.getDate() + 6);
             
-            let statusBadge = '';
-            if (schedule.shift === 'off') {
-                statusBadge = '<span class="inline-block px-3 py-1 text-xs rounded-full bg-red-100 text-red-800">LIBUR</span>';
-            } else if (isToday) {
-                statusBadge = '<span class="inline-block px-3 py-1 text-xs rounded-full bg-green-100 text-green-800">Hari Ini</span>';
-            } else if (isPast) {
-                statusBadge = '<span class="inline-block px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-600">Selesai</span>';
-            } else {
-                statusBadge = '<span class="inline-block px-3 py-1 text-xs rounded-full bg-blue-100 text-blue-800">Akan Datang</span>';
+            document.getElementById('scheduleStartDate').value = getTodayDateString();
+            document.getElementById('scheduleEndDate').value = nextWeek.toISOString().split('T')[0];
+        }
+
+        function generateScheduleTable() {
+            const startDate = document.getElementById('scheduleStartDate').value;
+            const endDate = document.getElementById('scheduleEndDate').value;
+            
+            if (!startDate || !endDate) {
+                showMessage('Harap pilih tanggal mulai dan selesai!', 'error');
+                return;
             }
-
             
-            card.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h4 class="font-semibold text-gray-800">${scheduleDate.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</h4>
-                        <p class="text-sm text-blue-600 font-medium">${shiftName}</p>
-                        <p class="text-xs text-gray-600">${operationalHours}</p>
-                    </div>
-                    <div class="text-right">
-                        ${statusBadge}
-                    </div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-    }
-
-    // Attendance List Functions
-    function loadAttendanceList() {
-        const container = document.getElementById('attendanceListContainer');
-        container.innerHTML = '';
-        
-        const todayID = getTodayDateIDFormat();
-        const todayAttendance = attendanceData.filter(a => a.date === todayID);
-        
-        if (todayAttendance.length === 0) {
-            container.innerHTML = '<p class="text-center text-gray-500 py-8">Belum ada data absensi hari ini</p>';
-            return;
-        }
-        
-        todayAttendance.forEach(attendance => {
-            const user = users.find(u => u.id === attendance.userId);
-            const card = document.createElement('div');
-            card.className = 'bg-gray-50 rounded-2xl p-4';
-            card.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h4 class="font-semibold text-gray-800">${attendance.userName}</h4>
-                        <p class="text-sm text-gray-600">${user ? user.shift.toUpperCase() : 'N/A'}</p>
-                        ${attendance.isLate ? '<span class="inline-block px-2 py-1 mt-1 text-xs bg-red-100 text-red-800 rounded-full">Terlambat</span>' : ''}
-                    </div>
-                    <div class="text-right">
-                        <div class="text-xs text-gray-500">Masuk: ${attendance.clockIn || '-'}</div>
-                        <div class="text-xs text-gray-500">Keluar: ${attendance.clockOut || '-'}</div>
-                        <span class="inline-block px-2 py-1 text-xs rounded-full ${attendance.clockOut ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}">
-                            ${attendance.clockOut ? 'Selesai' : 'Aktif'}
-                        </span>
-                    </div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-    }
-
-    // Schedule Table Functions
-    let currentScheduleTable = [];
-    let isEditingSchedule = false;
-
-    function initScheduleTable() {
-        if (currentUser.shift !== 'admin') return;
-        
-        // Set default dates (next 7 days)
-        const today = new Date();
-        const nextWeek = new Date();
-        nextWeek.setDate(today.getDate() + 6);
-        
-        document.getElementById('scheduleStartDate').value = getTodayDateString();
-        document.getElementById('scheduleEndDate').value = nextWeek.toISOString().split('T')[0];
-    }
-
-    function generateScheduleTable() {
-        const startDate = document.getElementById('scheduleStartDate').value;
-        const endDate = document.getElementById('scheduleEndDate').value;
-        
-        if (!startDate || !endDate) {
-            showMessage('Harap pilih tanggal mulai dan selesai!', 'error');
-            return;
-        }
-        
-        if (new Date(startDate) > new Date(endDate)) {
-            showMessage('Tanggal mulai tidak boleh lebih besar dari tanggal selesai!', 'error');
-            return;
-        }
-        
-        const container = document.getElementById('scheduleTableContainer');
-        const members = users.filter(u => u.shift !== 'admin');
-        
-        // Generate date range
-        const dates = [];
-        const current = new Date(startDate);
-        const end = new Date(endDate);
-        
-        while (current <= end) {
-            dates.push(new Date(current).toISOString().split('T')[0]);
-            current.setDate(current.getDate() + 1);
-        }
-        
-        // Create table
-        let tableHTML = `
-            <table class="w-full bg-white rounded-2xl overflow-hidden shadow-lg text-sm">
-                <thead class="bg-purple-600 text-white">
-                    <tr>
-                        <th class="px-3 py-3 text-left font-semibold">Nama</th>
-        `;
-        
-        dates.forEach(date => {
-            const dateObj = new Date(date);
-            const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'short' });
-            const dayNum = dateObj.getDate();
-            tableHTML += `<th class="px-2 py-3 text-center font-semibold min-w-20">${dayName}<br>${dayNum}</th>`;
-        });
-        
-        tableHTML += `</tr></thead><tbody>`;
-        
-        // Initialize current schedule table
-        currentScheduleTable = [];
-        
-        members.forEach((member, memberIndex) => {
-            tableHTML += `<tr class="border-b border-gray-100 ${memberIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">`;
-            tableHTML += `<td class="px-3 py-3 font-medium text-gray-800">${member.fullName}</td>`;
+            if (new Date(startDate) > new Date(endDate)) {
+                showMessage('Tanggal mulai tidak boleh lebih besar dari tanggal selesai!', 'error');
+                return;
+            }
             
-            const memberSchedule = { userId: member.id, userName: member.fullName, dates: {} };
+            const container = document.getElementById('scheduleTableContainer');
+            const members = users.filter(u => u.shift !== 'admin');
+            
+            // Generate date range
+            const dates = [];
+            const current = new Date(startDate);
+            const end = new Date(endDate);
+            
+            while (current <= end) {
+                dates.push(new Date(current).toISOString().split('T')[0]);
+                current.setDate(current.getDate() + 1);
+            }
+            
+            // Create table
+            let tableHTML = `
+                <table class="w-full bg-white rounded-2xl overflow-hidden shadow-lg text-sm">
+                    <thead class="bg-purple-600 text-white">
+                        <tr>
+                            <th class="px-3 py-3 text-left font-semibold">Nama</th>
+            `;
             
             dates.forEach(date => {
-                // Check if schedule already exists
-                const existingSchedule = scheduleData.find(s => s.userId === member.id && s.date === date);
-                const currentValue = existingSchedule ? existingSchedule.shift : '';
-                
-                memberSchedule.dates[date] = currentValue;
-                
-                tableHTML += `
-                    <td class="px-2 py-2 text-center">
-                        <select class="w-full px-1 py-1 text-xs border-0 rounded bg-gray-100 focus:outline-none focus:ring-1 focus:ring-purple-500" 
-                                onchange="updateScheduleCell(${member.id}, '${date}', this.value)">
-                            <option value="">-</option>
-                            <option value="shift1" ${currentValue === 'shift1' ? 'selected' : ''}>S1</option>
-                            <option value="shift2" ${currentValue === 'shift2' ? 'selected' : ''}>S2</option>
-                            <option value="fulltime" ${currentValue === 'fulltime' ? 'selected' : ''}>FT</option>
-                            <option value="off" ${currentValue === 'off' ? 'selected' : ''}>Libur</option>
-                        </select>
-                    </td>
-                `;
+                const dateObj = new Date(date);
+                const dayName = dateObj.toLocaleDateString('id-ID', { weekday: 'short' });
+                const dayNum = dateObj.getDate();
+                tableHTML += `<th class="px-2 py-3 text-center font-semibold min-w-20">${dayName}<br>${dayNum}</th>`;
             });
             
-            currentScheduleTable.push(memberSchedule);
-            tableHTML += `</tr>`;
-        });
-        
-        tableHTML += `</tbody></table>`;
-        
-        // Legend
-        tableHTML += `
-            <div class="mt-4 bg-gray-50 rounded-xl p-3">
-                <h5 class="font-semibold text-gray-800 mb-2 text-sm">Keterangan:</h5>
-                <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                    <div>• S1: Shift 1 (07:30-15:00)</div>
-                    <div>• S2: Shift 2 (14:30-21:30)</div>
-                    <div>• FT: Full Time (08:00-21:30)</div>
-                    <div>• Libur: Tidak bekerja</div>
-                </div>
-            </div>
-        `;
-        
-        container.innerHTML = tableHTML;
-        document.getElementById('scheduleTableActions').classList.remove('hidden');
-    }
-
-    function updateScheduleCell(userId, date, shift) {
-        const memberSchedule = currentScheduleTable.find(m => m.userId === userId);
-        if (memberSchedule) {
-            memberSchedule.dates[date] = shift;
-        }
-    }
-
-    function saveScheduleTable() {
-        let savedCount = 0;
-        let updatedCount = 0;
-        
-        currentScheduleTable.forEach(memberSchedule => {
-            Object.keys(memberSchedule.dates).forEach(date => {
-                const shift = memberSchedule.dates[date];
+            tableHTML += `</tr></thead><tbody>`;
+            
+            // Initialize current schedule table
+            currentScheduleTable = [];
+            
+            members.forEach((member, memberIndex) => {
+                tableHTML += `<tr class="border-b border-gray-100 ${memberIndex % 2 === 0 ? 'bg-gray-50' : 'bg-white'}">`;
+                tableHTML += `<td class="px-3 py-3 font-medium text-gray-800">${member.fullName}</td>`;
                 
-                const existingIndex = scheduleData.findIndex(s => s.userId === memberSchedule.userId && s.date === date);
+                const memberSchedule = { userId: member.id, userName: member.fullName, dates: {} };
                 
-                if (shift && shift !== '') { // Hanya simpan/update jika ada shift yang dipilih
+                dates.forEach(date => {
+                    // Check if schedule already exists
+                    const existingSchedule = scheduleData.find(s => s.userId === member.id && s.date === date);
+                    const currentValue = existingSchedule ? existingSchedule.shift : '';
                     
-                    if (existingIndex > -1) {
-                        // Update existing schedule
-                        scheduleData[existingIndex].shift = shift;
-                        updatedCount++;
-                    } else {
-                        // Create new schedule
-                        const newSchedule = {
-                            id: scheduleData.length + 1,
-                            userId: memberSchedule.userId,
-                            userName: memberSchedule.userName,
-                            date: date,
-                            shift: shift
-                        };
-                        scheduleData.push(newSchedule);
-                        savedCount++;
-                    }
-                } else {
-                    // Hapus jadwal jika shift dikosongkan/tidak dipilih
-                    if (existingIndex > -1) {
-                        scheduleData.splice(existingIndex, 1);
-                    }
-                }
-            });
-        });
-        
-        saveData();
-        showMessage(`Jadwal berhasil disimpan! (${savedCount} baru, ${updatedCount} diperbarui)`);
-        isEditingSchedule = false;
-    }
-
-    function editScheduleTable() {
-        isEditingSchedule = true;
-        showMessage('Mode edit aktif. Ubah jadwal lalu klik Simpan Jadwal.');
-    }
-
-    // Late Report Functions
-    function initLateReport() {
-        if (currentUser.shift !== 'admin') return;
-        
-        // Set default to current month
-        const today = new Date();
-        const currentMonth = today.toISOString().slice(0, 7);
-        document.getElementById('lateReportMonth').value = currentMonth;
-    }
-
-    function generateLateReport() {
-        const selectedMonth = document.getElementById('lateReportMonth').value;
-        if (!selectedMonth) {
-            showMessage('Harap pilih bulan!', 'error');
-            return;
-        }
-        
-        const container = document.getElementById('lateReportResults');
-        container.innerHTML = '';
-        
-        // Get all members
-        const members = users.filter(u => u.shift !== 'admin');
-        
-        if (members.length === 0) {
-            container.innerHTML = '<p class="text-center text-gray-500 py-4">Tidak ada anggota</p>';
-            return;
-        }
-        
-        // Calculate late attendance for each member
-        const lateReports = members.map(member => {
-            // Ubah format absensi DD/MM/YYYY menjadi YYYY-MM-DD untuk perbandingan bulan yang benar
-            const memberAttendance = attendanceData.filter(a => {
-                if (!a.date) return false;
-                const [day, month, year] = a.date.split('/');
-                const isoDate = `${year}-${month}-${day}`; // YYYY-MM-DD
+                    memberSchedule.dates[date] = currentValue;
+                    
+                    tableHTML += `
+                        <td class="px-2 py-2 text-center">
+                            <select class="w-full px-1 py-1 text-xs border-0 rounded bg-gray-100 focus:outline-none focus:ring-1 focus:ring-purple-500" 
+                                    onchange="updateScheduleCell(${member.id}, '${date}', this.value)">
+                                <option value="">-</option>
+                                <option value="shift1" ${currentValue === 'shift1' ? 'selected' : ''}>S1</option>
+                                <option value="shift2" ${currentValue === 'shift2' ? 'selected' : ''}>S2</option>
+                                <option value="fulltime" ${currentValue === 'fulltime' ? 'selected' : ''}>FT</option>
+                                <option value="off" ${currentValue === 'off' ? 'selected' : ''}>Libur</option>
+                            </select>
+                        </td>
+                    `;
+                });
                 
-                return a.userId === member.id && 
-                       isoDate.startsWith(selectedMonth) &&
-                       a.isLate === true;
+                currentScheduleTable.push(memberSchedule);
+                tableHTML += `</tr>`;
             });
             
-            return {
-                member: member,
-                lateCount: memberAttendance.length,
-                lateDates: memberAttendance.map(a => a.date)
-            };
-        });
-        
-        // Sort by late count (highest first)
-        lateReports.sort((a, b) => b.lateCount - a.lateCount);
-        
-        // Display results
-        lateReports.forEach(report => {
-            const card = document.createElement('div');
-            card.className = `rounded-2xl p-4 ${report.lateCount > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`;
+            tableHTML += `</tbody></table>`;
             
-            card.innerHTML = `
-                <div class="flex justify-between items-center mb-2">
-                    <h4 class="font-semibold ${report.lateCount > 0 ? 'text-red-800' : 'text-green-800'}">${report.member.fullName}</h4>
-                    <span class="px-3 py-1 rounded-full text-sm font-medium ${report.lateCount > 0 ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}">
-                        ${report.lateCount} kali terlambat
-                    </span>
+            // Legend
+            tableHTML += `
+                <div class="mt-4 bg-gray-50 rounded-xl p-3">
+                    <h5 class="font-semibold text-gray-800 mb-2 text-sm">Keterangan:</h5>
+                    <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                        <div>• S1: Shift 1 (07:30-15:00)</div>
+                        <div>• S2: Shift 2 (14:30-21:30)</div>
+                        <div>• FT: Full Time (08:00-21:30)</div>
+                        <div>• Libur: Tidak bekerja</div>
+                    </div>
                 </div>
-                ${report.lateCount > 0 ? `
-                    <div class="text-sm text-red-600">
-                        <strong>Tanggal terlambat:</strong><br>
-                        ${report.lateDates.join(', ')}
-                    </div>
-                ` : `
-                    <div class="text-sm text-green-600">
-                        Tidak ada keterlambatan bulan ini
-                    </div>
-                `}
             `;
             
-            container.appendChild(card);
-        });
-        
-        // Summary
-        const totalLate = lateReports.reduce((sum, report) => sum + report.lateCount, 0);
-        const membersWithLate = lateReports.filter(report => report.lateCount > 0).length;
-        
-        const summaryCard = document.createElement('div');
-        summaryCard.className = 'bg-blue-50 rounded-2xl p-4 border border-blue-200';
-        summaryCard.innerHTML = `
-            <h4 class="font-semibold text-blue-800 mb-2">Ringkasan Bulan ${selectedMonth}</h4>
-            <div class="text-sm text-blue-700 space-y-1">
-                <div>• Total keterlambatan: ${totalLate} kali</div>
-                <div>• Anggota yang terlambat: ${membersWithLate} dari ${members.length} anggota</div>
-                <div>• Tingkat kedisiplinan: ${members.length > 0 ? Math.round(((members.length - membersWithLate) / members.length) * 100) : 0}%</div>
-            </div>
-        `;
-        
-        container.insertBefore(summaryCard, container.firstChild);
-    }
-
-    // Schedule Manager Functions
-    function loadScheduleManager() {
-        const container = document.getElementById('scheduleManagerList');
-        container.innerHTML = '';
-        
-        // Sort schedules by date
-        const sortedSchedules = scheduleData.sort((a, b) => new Date(b.date) - new Date(a.date)); // Newest first
-        
-        if (sortedSchedules.length === 0) {
-            container.innerHTML = '<p class="text-center text-gray-500 py-4">Belum ada jadwal</p>';
-            return;
+            container.innerHTML = tableHTML;
+            document.getElementById('scheduleTableActions').classList.remove('hidden');
         }
-        
-        sortedSchedules.forEach(schedule => {
-            const card = document.createElement('div');
-            card.className = 'bg-gray-50 rounded-2xl p-4';
-            
-            // Get operational hours for display
-            let operationalHours = '';
-            switch(schedule.shift) {
-                case 'shift1':
-                    operationalHours = '07:30 - 15:00';
-                    break;
-                case 'shift2':
-                    operationalHours = '14:30 - 21:30';
-                    break;
-                case 'fulltime':
-                    operationalHours = '08:00 - 21:30';
-                    break;
-                case 'off':
-                    operationalHours = 'Libur';
-                    break;
+
+        function updateScheduleCell(userId, date, shift) {
+            const memberSchedule = currentScheduleTable.find(m => m.userId === userId);
+            if (memberSchedule) {
+                memberSchedule.dates[date] = shift;
             }
+        }
 
-            const scheduleDate = new Date(schedule.date).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        function saveScheduleTable() {
+            let savedCount = 0;
+            let updatedCount = 0;
             
-            card.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h4 class="font-semibold text-gray-800">${schedule.userName}</h4>
-                        <p class="text-sm text-gray-600">${scheduleDate}</p>
-                        <p class="text-xs text-blue-600">${schedule.shift.toUpperCase()} (${operationalHours})</p>
+            currentScheduleTable.forEach(memberSchedule => {
+                Object.keys(memberSchedule.dates).forEach(date => {
+                    const shift = memberSchedule.dates[date];
+                    if (shift) {
+                        // Check if schedule already exists
+                        const existingIndex = scheduleData.findIndex(s => s.userId === memberSchedule.userId && s.date === date);
+                        
+                        if (existingIndex > -1) {
+                            // Update existing schedule
+                            scheduleData[existingIndex].shift = shift;
+                            updatedCount++;
+                        } else {
+                            // Create new schedule
+                            const newSchedule = {
+                                id: scheduleData.length + 1,
+                                userId: memberSchedule.userId,
+                                userName: memberSchedule.userName,
+                                date: date,
+                                shift: shift
+                            };
+                            scheduleData.push(newSchedule);
+                            savedCount++;
+                        }
+                    } else {
+                        // Remove schedule if shift is empty
+                        const existingIndex = scheduleData.findIndex(s => s.userId === memberSchedule.userId && s.date === date);
+                        if (existingIndex > -1) {
+                            scheduleData.splice(existingIndex, 1);
+                        }
+                    }
+                });
+            });
+            
+            saveData();
+            showMessage(`Jadwal berhasil disimpan! (${savedCount} baru, ${updatedCount} diperbarui)`);
+            isEditingSchedule = false;
+        }
+
+        function editScheduleTable() {
+            isEditingSchedule = true;
+            showMessage('Mode edit aktif. Ubah jadwal lalu klik Simpan Jadwal.');
+        }
+
+        // Late Report Functions
+        function initLateReport() {
+            if (currentUser.shift !== 'admin') return;
+            
+            // Set default to current month
+            const today = new Date();
+            const currentMonth = today.toISOString().slice(0, 7);
+            document.getElementById('lateReportMonth').value = currentMonth;
+        }
+
+        function generateLateReport() {
+            const selectedMonth = document.getElementById('lateReportMonth').value;
+            if (!selectedMonth) {
+                showMessage('Harap pilih bulan!', 'error');
+                return;
+            }
+            
+            const container = document.getElementById('lateReportResults');
+            container.innerHTML = '';
+            
+            // Get all members
+            const members = users.filter(u => u.shift !== 'admin');
+            
+            if (members.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-4">Tidak ada anggota</p>';
+                return;
+            }
+            
+            // Calculate late attendance for each member
+            const lateReports = members.map(member => {
+                const memberAttendance = attendanceData.filter(a => 
+                    a.userId === member.id && 
+                    a.date.startsWith(selectedMonth.replace('-', '/')) &&
+                    a.isLate === true
+                );
+                
+                return {
+                    member: member,
+                    lateCount: memberAttendance.length,
+                    lateDates: memberAttendance.map(a => a.date)
+                };
+            });
+            
+            // Sort by late count (highest first)
+            lateReports.sort((a, b) => b.lateCount - a.lateCount);
+            
+            // Display results
+            lateReports.forEach(report => {
+                const card = document.createElement('div');
+                card.className = `rounded-2xl p-4 ${report.lateCount > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`;
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-semibold ${report.lateCount > 0 ? 'text-red-800' : 'text-green-800'}">${report.member.fullName}</h4>
+                        <span class="px-3 py-1 rounded-full text-sm font-medium ${report.lateCount > 0 ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'}">
+                            ${report.lateCount} kali terlambat
+                        </span>
                     </div>
-                    <button onclick="deleteSchedule(${schedule.id})" class="text-red-600 hover:text-red-800 text-sm">
-                        Hapus
-                    </button>
+                    ${report.lateCount > 0 ? `
+                        <div class="text-sm text-red-600">
+                            <strong>Tanggal terlambat:</strong><br>
+                            ${report.lateDates.join(', ')}
+                        </div>
+                    ` : `
+                        <div class="text-sm text-green-600">
+                            Tidak ada keterlambatan bulan ini
+                        </div>
+                    `}
+                `;
+                
+                container.appendChild(card);
+            });
+            
+            // Summary
+            const totalLate = lateReports.reduce((sum, report) => sum + report.lateCount, 0);
+            const membersWithLate = lateReports.filter(report => report.lateCount > 0).length;
+            
+            const summaryCard = document.createElement('div');
+            summaryCard.className = 'bg-blue-50 rounded-2xl p-4 border border-blue-200';
+            summaryCard.innerHTML = `
+                <h4 class="font-semibold text-blue-800 mb-2">Ringkasan Bulan ${selectedMonth}</h4>
+                <div class="text-sm text-blue-700 space-y-1">
+                    <div>• Total keterlambatan: ${totalLate} kali</div>
+                    <div>• Anggota yang terlambat: ${membersWithLate} dari ${members.length} anggota</div>
+                    <div>• Tingkat kedisiplinan: ${Math.round(((members.length - membersWithLate) / members.length) * 100)}%</div>
                 </div>
             `;
-            container.appendChild(card);
-        });
-    }
-
-    function deleteSchedule(scheduleId) {
-        const index = scheduleData.findIndex(s => s.id === scheduleId);
-        if (index > -1) {
-            scheduleData.splice(index, 1);
-            saveData();
-            showMessage('Jadwal berhasil dihapus!');
-            loadScheduleManager();
+            
+            container.insertBefore(summaryCard, container.firstChild);
         }
-    }
 
-    // Admin Functions
-    function loadAdminPanel() {
-        if (currentUser.shift !== 'admin') return;
-        
-        loadUserManagement();
-        loadAdminAttendanceData();
-    }
-
-    function loadUserManagement() {
-        const container = document.getElementById('userManagementList');
-        container.innerHTML = '';
-        
-        users.filter(u => u.shift !== 'admin').forEach(user => {
-            const card = document.createElement('div');
-            card.className = 'bg-gray-50 rounded-2xl p-4';
-            card.innerHTML = `
-                <div class="flex justify-between items-center mb-3">
-                    <div>
-                        <h4 class="font-semibold text-gray-800">${user.fullName}</h4>
-                        <p class="text-sm text-gray-600">${user.email}</p>
+        // Schedule Manager Functions
+        function loadScheduleManager() {
+            const container = document.getElementById('scheduleManagerList');
+            container.innerHTML = '';
+            
+            // Sort schedules by date
+            const sortedSchedules = scheduleData.sort((a, b) => new Date(a.date) - new Date(b.date));
+            
+            if (sortedSchedules.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-4">Belum ada jadwal</p>';
+                return;
+            }
+            
+            sortedSchedules.forEach(schedule => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 rounded-2xl p-4';
+                
+                // Get operational hours for display
+                let operationalHours = '';
+                switch(schedule.shift) {
+                    case 'shift1':
+                        operationalHours = '07:30 - 15:00';
+                        break;
+                    case 'shift2':
+                        operationalHours = '14:30 - 21:30';
+                        break;
+                    case 'fulltime':
+                        operationalHours = '08:00 - 21:30';
+                        break;
+                }
+                
+                card.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-semibold text-gray-800">${schedule.userName}</h4>
+                            <p class="text-sm text-gray-600">${new Date(schedule.date).toLocaleDateString('id-ID')}</p>
+                            <p class="text-xs text-blue-600">${schedule.shift.toUpperCase()} (${operationalHours})</p>
+                        </div>
+                        <button onclick="deleteSchedule(${schedule.id})" class="text-red-600 hover:text-red-800 text-sm">
+                            Hapus
+                        </button>
                     </div>
-                    <button onclick="deleteUser(${user.id})" class="text-red-600 hover:text-red-800 text-sm">
-                        Hapus
-                    </button>
-                </div>
-                <select onchange="changeUserShift(${user.id}, this.value)" class="w-full px-3 py-2 border-0 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
-                    <option value="shift1" ${user.shift === 'shift1' ? 'selected' : ''}>Shift 1</option>
-                    <option value="shift2" ${user.shift === 'shift2' ? 'selected' : ''}>Shift 2</option>
-                    <option value="fulltime" ${user.shift === 'fulltime' ? 'selected' : ''}>Full Time</option>
-                </select>
-            `;
-            container.appendChild(card);
-        });
-    }
-
-    function loadAdminAttendanceData() {
-        const container = document.getElementById('adminAttendanceList');
-        container.innerHTML = '';
-        
-        if (attendanceData.length === 0) {
-            container.innerHTML = '<p class="text-center text-gray-500 py-4">Belum ada data absensi</p>';
-            return;
+                `;
+                container.appendChild(card);
+            });
         }
-        
-        // Sort by date (newest first)
-        const sortedAttendance = [...attendanceData].sort((a, b) => {
-            // Konversi tanggal ID (DD/MM/YYYY) ke ISO (YYYY-MM-DD) untuk perbandingan yang benar
-            const convertToISO = (dateStr) => {
-                if (!dateStr) return 0;
-                const parts = dateStr.split('/');
-                return new Date(parts[2], parts[1] - 1, parts[0]);
-            };
-            return convertToISO(b.date) - convertToISO(a.date);
-        });
-        
-        sortedAttendance.forEach(attendance => {
-            const card = document.createElement('div');
-            card.className = `rounded-2xl p-4 ${attendance.isLate ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`;
-            const totalHours = calculateWorkHours(attendance.clockIn, attendance.clockOut);
-            card.innerHTML = `
-                <div class="flex justify-between items-center">
-                    <div>
-                        <h4 class="font-semibold ${attendance.isLate ? 'text-red-800' : 'text-gray-800'}">${attendance.userName}</h4>
-                        <p class="text-sm text-gray-600">${attendance.date}</p>
-                        ${attendance.isLate ? '<span class="inline-block px-2 py-1 text-xs bg-red-200 text-red-800 rounded-full">Terlambat</span>' : ''}
-                    </div>
-                    <div class="text-right text-sm text-gray-600">
-                        <div>Masuk: ${attendance.clockIn || '-'}</div>
-                        <div>Keluar: ${attendance.clockOut || '-'}</div>
-                        <div>Total: ${totalHours}</div>
-                    </div>
-                </div>
-            `;
-            container.appendChild(card);
-        });
-    }
 
-    function changeUserShift(userId, newShift) {
-        const user = users.find(u => u.id === userId);
-        if (user) {
-            user.shift = newShift;
-            saveData();
-            showMessage(`Shift ${user.fullName} berhasil diubah ke ${newShift}`);
+        function deleteSchedule(scheduleId) {
+            const index = scheduleData.findIndex(s => s.id === scheduleId);
+            if (index > -1) {
+                scheduleData.splice(index, 1);
+                saveData();
+                showMessage('Jadwal berhasil dihapus!');
+                loadScheduleManager();
+            }
         }
-    }
 
-    function deleteUser(userId) {
-        const userIndex = users.findIndex(u => u.id === userId);
-        if (userIndex > -1) {
-            const userName = users[userIndex].fullName;
-            users.splice(userIndex, 1);
-            attendanceData = attendanceData.filter(a => a.userId !== userId);
-            scheduleData = scheduleData.filter(s => s.userId !== userId);
-            saveData();
-            showMessage(`User ${userName} berhasil dihapus`);
+        // Admin Functions
+        function loadAdminPanel() {
+            if (currentUser.shift !== 'admin') return;
+            
             loadUserManagement();
             loadAdminAttendanceData();
         }
-    }
 
-    function calculateWorkHours(clockIn, clockOut) {
-        if (!clockIn || !clockOut) return '-';
-        
-        // Time format is HH:MM:SS, only need HH and MM for calculation
-        const [inHour, inMinute] = clockIn.split(':').map(Number);
-        const [outHour, outMinute] = clockOut.split(':').map(Number);
-        
-        const inTime = inHour * 60 + inMinute;
-        const outTime = outHour * 60 + outMinute;
-        
-        const diffMinutes = outTime - inTime;
-        
-        // Handle case where clockOut is on the next day (e.g., overnight shifts)
-        const totalMinutes = diffMinutes >= 0 ? diffMinutes : diffMinutes + (24 * 60);
+        function loadUserManagement() {
+            const container = document.getElementById('userManagementList');
+            container.innerHTML = '';
+            
+            users.filter(u => u.shift !== 'admin').forEach(user => {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 rounded-2xl p-4';
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-3">
+                        <div>
+                            <h4 class="font-semibold text-gray-800">${user.fullName}</h4>
+                            <p class="text-sm text-gray-600">${user.email}</p>
+                        </div>
+                        <button onclick="deleteUser(${user.id})" class="text-red-600 hover:text-red-800 text-sm">
+                            Hapus
+                        </button>
+                    </div>
+                    <select onchange="changeUserShift(${user.id}, this.value)" class="w-full px-3 py-2 border-0 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                        <option value="shift1" ${user.shift === 'shift1' ? 'selected' : ''}>Shift 1</option>
+                        <option value="shift2" ${user.shift === 'shift2' ? 'selected' : ''}>Shift 2</option>
+                        <option value="fulltime" ${user.shift === 'fulltime' ? 'selected' : ''}>Full Time</option>
+                    </select>
+                `;
+                container.appendChild(card);
+            });
+        }
 
-        const hours = Math.floor(totalMinutes / 60);
-        const minutes = totalMinutes % 60;
-        
-        return `${hours}j ${minutes}m`;
-    }
+        function loadAdminAttendanceData() {
+            const container = document.getElementById('adminAttendanceList');
+            container.innerHTML = '';
+            
+            if (attendanceData.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-500 py-4">Belum ada data absensi</p>';
+                return;
+            }
+            
+            // Sort by date (newest first)
+            const sortedAttendance = [...attendanceData].sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            sortedAttendance.forEach(attendance => {
+                const card = document.createElement('div');
+                card.className = `rounded-2xl p-4 ${attendance.isLate ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`;
+                const totalHours = calculateWorkHours(attendance.clockIn, attendance.clockOut);
+                card.innerHTML = `
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h4 class="font-semibold ${attendance.isLate ? 'text-red-800' : 'text-gray-800'}">${attendance.userName}</h4>
+                            <p class="text-sm text-gray-600">${attendance.date}</p>
+                            ${attendance.isLate ? '<span class="inline-block px-2 py-1 text-xs bg-red-200 text-red-800 rounded-full">Terlambat</span>' : ''}
+                        </div>
+                        <div class="text-right text-sm text-gray-600">
+                            <div>Masuk: ${attendance.clockIn || '-'}</div>
+                            <div>Keluar: ${attendance.clockOut || '-'}</div>
+                            <div>Total: ${totalHours}</div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
 
-    // Export Functions
-    function exportToExcel() {
-        const ws = XLSX.utils.json_to_sheet(attendanceData.map(a => ({
-            Tanggal: a.date,
-            Nama: a.userName,
-            'Jam Masuk': a.clockIn || '-',
-            Istirahat: a.breakTime || '-',
-            'Jam Keluar': a.clockOut || '-',
-            Shift: a.shift,
-            'Terlambat': a.isLate ? 'Ya' : 'Tidak',
-            'Total Jam': calculateWorkHours(a.clockIn, a.clockOut)
-        })));
-        
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'Data Absensi');
-        XLSX.writeFile(wb, 'data-absensi.xlsx');
-        showMessage('Data berhasil diekspor ke Excel!');
-    }
+        function changeUserShift(userId, newShift) {
+            const user = users.find(u => u.id === userId);
+            if (user) {
+                user.shift = newShift;
+                saveData();
+                showMessage(`Shift ${user.fullName} berhasil diubah ke ${newShift}`);
+            }
+        }
 
-    function exportToPDF() {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        
-        doc.text('Data Absensi', 20, 20);
-        
-        let y = 40;
-        attendanceData.forEach(a => {
-            doc.text(`${a.date} - ${a.userName} - ${a.clockIn || '-'} - ${a.clockOut || '-'}`, 20, y);
-            y += 10;
-        });
-        
-        doc.save('data-absensi.pdf');
-        showMessage('Data berhasil diekspor ke PDF!');
-    }
+        function deleteUser(userId) {
+            const userIndex = users.findIndex(u => u.id === userId);
+            if (userIndex > -1) {
+                const userName = users[userIndex].fullName;
+                users.splice(userIndex, 1);
+                attendanceData = attendanceData.filter(a => a.userId !== userId);
+                scheduleData = scheduleData.filter(s => s.userId !== userId);
+                saveData();
+                showMessage(`User ${userName} berhasil dihapus`);
+                loadUserManagement();
+                loadAdminAttendanceData();
+            }
+        }
 
-    // Initialize
-    showLogin();
-</script>
+        function calculateWorkHours(clockIn, clockOut) {
+            if (!clockIn || !clockOut) return '-';
+            
+            const [inHour, inMinute] = clockIn.split(':').map(Number);
+            const [outHour, outMinute] = clockOut.split(':').map(Number);
+            
+            const inTime = inHour * 60 + inMinute;
+            const outTime = outHour * 60 + outMinute;
+            
+            const diffMinutes = outTime - inTime;
+            const hours = Math.floor(diffMinutes / 60);
+            const minutes = diffMinutes % 60;
+            
+            return `${hours}j ${minutes}m`;
+        }
+
+        // Export Functions
+        function exportToExcel() {
+            const ws = XLSX.utils.json_to_sheet(attendanceData.map(a => ({
+                Tanggal: a.date,
+                Nama: a.userName,
+                'Jam Masuk': a.clockIn || '-',
+                Istirahat: a.breakTime || '-',
+                'Jam Keluar': a.clockOut || '-',
+                Shift: a.shift,
+                'Total Jam': calculateWorkHours(a.clockIn, a.clockOut)
+            })));
+            
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Data Absensi');
+            XLSX.writeFile(wb, 'data-absensi.xlsx');
+            showMessage('Data berhasil diekspor ke Excel!');
+        }
+
+        function exportToPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.text('Data Absensi', 20, 20);
+            
+            let y = 40;
+            attendanceData.forEach(a => {
+                doc.text(`${a.date} - ${a.userName} - ${a.clockIn || '-'} - ${a.clockOut || '-'}`, 20, y);
+                y += 10;
+            });
+            
+            doc.save('data-absensi.pdf');
+            showMessage('Data berhasil diekspor ke PDF!');
+        }
+
+        // Initialize
+        showLogin();
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'98ed9ea062e25844',t:'MTc2MDUxMzUxNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
